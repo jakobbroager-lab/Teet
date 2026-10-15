@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Semester of the Tentacle</title>
+<style>
+:root{--bg:#0d0b14;--fg:#f1ecff;--pu:#9b4dff;--ac:#ffd23f}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.3 "Trebuchet MS",system-ui,sans-serif;display:flex;justify-content:center}
+#app{width:100%;max-width:960px;padding:8px 16px}
+h1{font-size:18px;margin:4px 0;color:var(--pu);letter-spacing:1px}
+canvas{width:100%;display:block;background:#000;border:3px solid #2b2144;border-radius:6px;image-rendering:pixelated;cursor:crosshair}
+#line{min-height:44px;padding:8px;font-weight:bold;font-size:17px}
+#status{color:#9a92b5;min-height:20px;padding:0 8px}
+.row{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+button{background:#241a3d;color:var(--fg);border:2px solid #3b2d63;border-radius:6px;padding:8px 12px;font:inherit;cursor:pointer}
+button:hover{border-color:var(--pu)}
+button.on{background:var(--pu);border-color:var(--ac);color:#fff}
+#verbs button{flex:1;min-width:90px}
+#inv button{font-size:14px;padding:6px 10px}
+#ov{position:fixed;inset:0;background:rgba(8,5,16,.95);display:flex;align-items:center;justify-content:center;padding:16px;text-align:center;z-index:9}
+#ov div{max-width:560px}
+#ov h2{color:var(--pu);font-size:30px;margin:0 0 8px}
+#ov p{font-size:16px}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<div id="ov"><div>
+  <h2 id="ovt">SEMESTER OF THE TENTACLE</h2>
+  <p id="ovp">Twenty-nine years after the Sludge-O-Matic incident, Purple Tentacle has graduated, rebranded as <b>PURPLE U™ Chancellor</b>, and tonight the Board votes on the <b>TUITION FOREVER ACT</b>.<br><br>Bernard (now), Hoagie (1996) and Laverne (2056) must stop the vote, using nothing but the Chron-o-John, a dead phone and student-loan-grade desperation.</p>
+  <button id="go">START SEMESTER</button>
+</div></div>
+<div id="app">
+  <h1>SEMESTER OF THE TENTACLE</h1>
+  <canvas id="cv" width="640" height="320"></canvas>
+  <div id="line"></div>
+  <div id="status">&nbsp;</div>
+  <div class="row" id="chars"></div>
+  <div class="row" id="verbs"></div>
+  <div class="row" id="inv"></div>
+</div>
+<script>
+"use strict";
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+const $=id=>document.getElementById(id);
+const F={}; // story flags
+const ITEMS={
+ 'Quarter':'A 1996 quarter. Worth more than my current degree.',
+ 'Floppy Disk':'1.44MB. Label: "REGISTRAR-OPT-OUT v1.0 (DO NOT LET THE BOARD SEE)".',
+ 'Gift Card':'An expired "Purple Beans" gift card. Balance: $0.00. Hope: $0.00.',
+ 'Charging Puck':'A 2056 wireless charging puck. Charges anything. Even feelings.',
+ 'Energy Drink':'VOLTAGE™ Zero Sleep Edition. Warning: may reveal the future.',
+ 'RA Keycard':'Resident Assistant master keycard. Unlimited power, zero pay.',
+ 'Pizza Flyer':'Free pizza! Terms: attend a 3-hour webinar about tuition.'
+};
+const itemDesc=n=>n==='Phone'?(F.charged?'Bernard\'s phone. 100%! Notifications: 4,812.':'Bernard\'s phone. Battery: 0%. Screen: black. Like my future.'):ITEMS[n];
+const C={
+ bernard:{name:'Bernard',col:'#7fd0ff',scene:'now',x:120,y:260,inv:['Phone'],hair:'#3a2a1a',shirt:'#e8e8e8',glasses:1},
+ hoagie:{name:'Hoagie',col:'#ff9f4d',scene:'past',x:120,y:260,inv:[],hair:'#2a1a10',shirt:'#222',long:1},
+ laverne:{name:'Laverne',col:'#ff6fd0',scene:'future',x:120,y:260,inv:[],hair:'#d94a2a',shirt:'#3ee6c8',glasses:1}
+};
+let cur='bernard',verb='Look at',sel=null,hover=null,pending=null,queue=[],talkTimer=0,over=false;
+const say=(t,col)=>{(Array.isArray(t)?t:[t]).forEach(x=>queue.push({t:x,col:col||C[cur].col}));next();};
+function next(){const l=$('line');if(!queue.length){l.textContent='';return;}const q=queue.shift();l.textContent=q.t;l.style.color=q.col;clearTimeout(talkTimer);talkTimer=setTimeout(next,Math.max(1800,q.t.length*55));}
+const give=(who,item)=>{C[who].inv.push(item);renderInv();};
+const take=(who,item)=>{C[who].inv=C[who].inv.filter(i=>i!==item);if(sel===item)sel=null;renderInv();};
+const has=(who,item)=>C[who].inv.includes(item);
+
+/* ---------- SCENES ---------- */
+const Y=0;
+const sendJohn=(who)=>({
+ use:()=>say(sel?`Select an item first, then use it on the Chron-o-John.`:`The Chron-o-John gurgles. Select an item, then use it on the john to flush it forward in time.`),
+ pick:()=>say("It's plumbed into the space-time continuum. Facilities will notice."),
+ look:()=>say(who==='bernard'?'The Chron-o-John. Bernard has no reason to flush the past.':"The Chron-o-John. A time machine disguised as a campus toilet. Sadly, that's the least weird thing here."),
+ send:(item)=>{ if(who==='bernard')return say("Bernard flushes nothing. The past does not need his help.");
+   take(who,item);give('bernard',item);say([`${C[who].name} drops the ${item} in the Chron-o-John. FLUSH!`,`(Bernard now has: ${item}.)`]);}
+});
+const SC={
+ past:{theme:{wall:'#d9a066',floor:'#7a4e2d',acc:'#b5651d'},hs:[
+  {id:'couch',n:'Couch',x:30,y:150,w:140,h:85,wx:100,
+   look:()=>say('A burnt-orange couch. Between the cushions: Pogs, a Tamagotchi, and what looks like a quarter.'),
+   pick:()=>{ if(F.quarter)return say('Just crumbs and regret now.'); F.quarter=1;give('hoagie','Quarter');say('Hoagie digs out a Quarter. Gross, but that is 1996 for you.');},
+   use:()=>say('Hoagie sits. Immediately forgets what year it is.')},
+  {id:'poster',n:'Tuition Poster',x:205,y:50,w:90,h:80,wx:250,look:()=>say('"Tuition: Only $2,400/yr! Enjoy it while it lasts." Ominous.'),pick:()=>say('Stuck there with a thumbtack and bad intentions.')},
+  {id:'crt',n:'Beige Computer',x:200,y:150,w:90,h:65,wx:250,look:()=>say('A beige CRT. Netscape has been loading since Tuesday.'),pick:()=>say('Weighs 40 pounds, has a "Y2K READY" sticker. Leave it.'),use:()=>say('"You\'ve got mail!" It is just spam about tuition.')},
+  {id:'vend',n:'Snack & Disk Machine',x:330,y:90,w:80,h:140,wx:370,
+   look:()=>say('Snacks, soda and blank floppy disks. Compliments of the Registrar.'),
+   use:()=>say('Insert a coin to continue. Quarters only.'),
+   with:{'Quarter':()=>{take('hoagie','Quarter');give('hoagie','Floppy Disk');say(['CLUNK. The machine spits out a Floppy Disk.','Label: "REGISTRAR-OPT-OUT v1.0". Coincidence? In 1996, always.']);}}},
+  {id:'phone',n:'Payphone',x:580,y:100,w:45,h:95,wx:560,look:()=>say('A payphone. Calling the future is long distance.'),use:()=>say('Dial tone. Then a voice: "Please pay tuition." Hoagie hangs up.')},
+  {id:'john',n:'Chron-o-John',x:480,y:120,w:60,h:115,wx:505,...sendJohn('hoagie')}
+ ]},
+ now:{theme:{wall:'#a9c4e0',floor:'#5c6b7a',acc:'#3f6fa0'},hs:[
+  {id:'gt',n:'Green Tentacle',x:40,y:140,w:120,h:95,wx:120,
+   look:()=>say('Green Tentacle, Resident Assistant. Has not slept since the Obama administration.'),
+   pick:()=>say('Please do not touch the RA.'),
+   talk:()=>{ if(F.gotKey)return say('"I can see time. Also my grades. Don\'t look."','#4cff6a');
+    say(F.talked?['"Energy drink. Vending machine. Phone pay only. Please."']:['"Oh hi Bernard. Midterms, finals, student loans... I\'m dying."','"One VOLTAGE energy drink and I\'ll give you my RA keycard. I can\'t buy it, my phone\'s at 1%."','"The machine only takes phone tap-to-pay. Of course it does."'],'#4cff6a');F.talked=1;},
+   with:{'Energy Drink':()=>{take('bernard','Energy Drink');give('bernard','RA Keycard');F.gotKey=1;say(['Green Tentacle chugs it. His eyes spin.','"I CAN HEAR THE FUTURE! Here, take my keycard. I\'ll be in the quad. Screaming."'],'#4cff6a');}}},
+  {id:'board',n:'Bulletin Board',x:205,y:50,w:90,h:80,wx:250,
+   look:()=>say('"BOARD OF REGENTS VOTE TONIGHT: TUITION FOREVER ACT. Submit comments by tomorrow." A purple tentacle logo is in the corner.'),
+   pick:()=>{ if(F.flyer)return say('One flyer is enough.'); F.flyer=1;give('bernard','Pizza Flyer');say('Bernard takes a flyer. Free pizza is legally binding.');}},
+  {id:'vend',n:'VOLTAGE Vending Machine',x:330,y:90,w:80,h:140,wx:370,
+   look:()=>say('A smart vending machine. It only accepts tap-to-pay. And judges you.'),
+   use:()=>say(F.charged?'Use the phone on it. Tap to pay!':'"Please tap your phone to pay." Bernard\'s phone is 0%. The machine sighs.'),
+   with:{'Phone':()=>{ if(!F.charged)return say('Battery 0%. The machine says "lol".'); if(F.drink)return say('Bernard has already bought out their zero-sleep inventory.'); F.drink=1;give('bernard','Energy Drink');say('Beep. $6.99 for an energy drink. A VOLTAGE Zero Sleep Edition drops out.');}}},
+  {id:'john',n:'Chron-o-John',x:480,y:120,w:60,h:115,wx:505,...sendJohn('bernard')},
+  {id:'door',n:'Server Room Door',x:580,y:60,w:55,h:175,wx:575,
+   look:()=>say('"SERVER ROOM — AUTHORIZED STAFF ONLY. (Also, the Wi-Fi is down.)" The keycard reader blinks red.'),
+   use:()=>say('Locked. A keycard reader sneers at you.'),
+   with:{'RA Keycard':()=>{say('BEEP. Green light. The server room door slides open.');setTimeout(()=>{C.bernard.scene='server';C.bernard.x=90;C.bernard.y=270;draw();},900);}}}
+ ]},
+ future:{theme:{wall:'#1b1033',floor:'#2a1a55',acc:'#00f0d0'},hs:[
+  {id:'bin',n:'Lost & Found Bin',x:40,y:170,w:70,h:65,wx:100,
+   look:()=>say('A bin of lost items: a hoverboard, an AirPod, and what looks like an old gift card.'),
+   pick:()=>{ if(F.gift)return say('Only more lost hope in there.'); F.gift=1;give('laverne','Gift Card');say('Laverne fishes out an expired Purple Beans Gift Card.');}},
+  {id:'holo',n:'Hologram Ad',x:205,y:50,w:100,h:80,wx:255,look:()=>say('"PURPLE™ Premium Tuition: Own your debt. Forever. Now with ads." Every student in 2056 is a subscriber.'),pick:()=>say('It is a hologram. She waves her hand through it. It sings a jingle.')},
+  {id:'barista',n:'BARISTA-9000',x:330,y:90,w:95,h:140,wx:375,
+   look:()=>say('A tentacle-armed espresso robot. Its eyes are Purple Tentacle\'s logo. Creepy.'),
+   talk:()=>say(F.dist?'"Balance inquiry running... 0.0003%..."':'"Good morning, Human Unit. Please present loyalty card for your free 100th coffee."','#d99bff'),
+   pick:()=>say('Tempting but no.'),
+   with:{'Gift Card':()=>{ if(F.dist)return;F.dist=1;take('laverne','Gift Card');say(['"Scanning... Balance: $0.00. Recalculating hope..."','The BARISTA-9000 enters an infinite balance-inquiry loop. The counter is unguarded!'],'#d99bff');}}},
+  {id:'puck',n:'Charging Puck',x:430,y:165,w:40,h:30,wx:445,
+   look:()=>say('A sleek charging puck on the counter. "Premium add-on," the barista bot mutters.'),
+   pick:()=>{ if(F.puck)return say('Already got it.'); if(!F.dist)return say('"Hands off, Human Unit. Puck is a premium add-on." The barista bot slaps her hand.','#d99bff'); F.puck=1;give('laverne','Charging Puck');say('While the barista is busy computing, Laverne swipes the Charging Puck.');}},
+  {id:'john',n:'Chron-o-John',x:480,y:120,w:60,h:115,wx:505,...sendJohn('laverne')},
+  {id:'pod',n:'Nap Pod',x:580,y:100,w:50,h:130,wx:565,look:()=>say('A subscription nap pod: $4.99/min. "Sleep is a premium feature."'),use:()=>say('Insufficient funds. Of course.')}
+ ]},
+ server:{theme:{wall:'#20262e',floor:'#10131a',acc:'#33ff99'},hs:[
+  {id:'exit',n:'Exit',x:10,y:60,w:50,h:170,wx:50,look:()=>say('Back to the lobby. Nothing to see there but regret.'),use:()=>{C.bernard.scene='now';C.bernard.x=540;draw();}},
+  {id:'main',n:'Registrar-9 Mainframe',x:150,y:70,w:240,h:150,wx:270,
+   look:()=>say(F.floppy?'Floppy drive: "OPT-OUT.EXE loaded. Awaiting 2FA approval on your device."':'A 1996 mainframe running the whole Registrar. Floppy drive: empty. Screen: "TUITION FOREVER ACT — QUEUED FOR VOTE".'),
+   use:()=>say('Bernard bashes the keyboard. "Access denied. Try again in 29 years."'),
+   with:{
+    'Floppy Disk':()=>{ if(F.floppy)return; F.floppy=1;take('bernard','Floppy Disk');say(['Bernard inserts the Floppy Disk. Drive grinds like a 56k modem.','Screen: "OPT-OUT.EXE loaded. Waiting for Two-Factor Authentication on your device."']);},
+    'Phone':()=>{ if(!F.floppy)return say('The mainframe has not been asked anything yet. Bernard needs to give it something to run.'); if(!F.charged)return say('Phone is dead!'); win();}
+   }},
+  {id:'pt',n:'Purple Monitor',x:430,y:80,w:100,h:70,wx:430,look:()=>say('A monitor showing a smug purple face: "TUITION FOREVER — VOTE IN 3... 2..." It is a countdown.'),talk:()=>say('"You\'re too late, student! Mwahaha!" — Purple Tentacle (via Zoom)','#d99bff')}
+ ]}
+};
+window.__SC=SC;
+
+/* ---------- ENGINE ---------- */
+const hsOf=()=>SC[C[cur].scene].hs;
+function hit(mx,my){const h=hsOf();for(let i=h.length-1;i>=0;i--){const o=h[i];if(mx>=o.x&&mx<=o.x+o.w&&my>=o.y&&my<=o.y+o.h)return o;}return null;}
+function pos(e){const r=cv.getBoundingClientRect();const t=e.touches?e.touches[0]:e;return{x:(t.clientX-r.left)*cv.width/r.width,y:(t.clientY-r.top)*cv.height/r.height};}
+function act(h){
+ if(sel){const item=sel;const fn=h.with&&h.with[item];sel=null;renderInv();
+  if(h.id==='john'&&C[cur].name){return h.send(item);}
+  if(fn)return fn();return say(`Using ${item} on ${h.n} doesn't do anything.`);}
+ const m={'Look at':'look','Pick up':'pick','Use':'use','Talk to':'talk'}[verb];
+ const f=h[m];
+ if(f)return f();
+ say({look:'Nothing special.',pick:"Can't pick that up.",use:"That doesn't work.",talk:'It has nothing to say.'}[m]);
+}
+function click(e){
+ if(over)return;e.preventDefault();
+ const p=pos(e),h=hit(p.x,p.y),c=C[cur];
+ if(h){pending=()=>act(h);c.tx=Math.max(30,Math.min(610,h.wx));c.ty=Math.max(235,Math.min(300,h.wy||268));}
+ else if(p.y>200){pending=null;c.tx=Math.max(30,Math.min(610,p.x));c.ty=Math.max(235,Math.min(300,p.y));sel=null;renderInv();}
+}
+cv.addEventListener('mousedown',click);cv.addEventListener('touchstart',click,{passive:false});
+cv.addEventListener('mousemove',e=>{const p=pos(e);hover=hit(p.x,p.y);$('status').textContent=hover?(sel?`Use ${sel} with ${hover.n}`:`${verb} ${hover.n}`):(sel?`Use ${sel} with…`:' ');});
+
+function step(){
+ const c=C[cur];
+ if(c.tx!=null){const dx=c.tx-c.x,dy=c.ty-c.y,d=Math.hypot(dx,dy);
+  if(d<3){c.x=c.tx;c.y=c.ty;c.tx=null;c.walk=0;if(pending){const p=pending;pending=null;p();}}
+  else{c.x+=dx/d*3;c.y+=dy/d*3;c.walk=(c.walk||0)+1;c.dir=dx<0?-1:1;}}
+ draw();requestAnimationFrame(step);
+}
+
+/* ---------- DRAWING ---------- */
+const R=(c,x,y,w,h)=>{ctx.fillStyle=c;ctx.fillRect(x,y,w,h);};
+const E=(c,x,y,rx,ry)=>{ctx.fillStyle=c;ctx.beginPath();ctx.ellipse(x,y,rx,ry,0,0,7);ctx.fill();};
+const T=(s,x,y,c,sz)=>{ctx.fillStyle=c||'#000';ctx.font=`bold ${sz||11}px monospace`;ctx.textAlign='center';ctx.fillText(s,x,y);};
+const D={
+ couch:(h,t)=>{R('#c4571a',h.x,h.y+25,h.w,h.h-25);R('#a8420f',h.x,h.y,h.w,35);R('#8f3a0f',h.x-6,h.y+15,16,h.h-10);R('#8f3a0f',h.x+h.w-10,h.y+15,16,h.h-10);},
+ poster:(h,t)=>{R('#fff4d6',h.x,h.y,h.w,h.h);R('#c0392b',h.x,h.y,h.w,12);T('TUITION',h.x+h.w/2,h.y+35,'#222');T('$2,400!',h.x+h.w/2,h.y+55,'#c0392b',14);},
+ crt:(h,t)=>{R('#8a5a2b',h.x,h.y+48,h.w,17);R('#d8d0b8',h.x+10,h.y,70,50);R('#112211',h.x+16,h.y+6,58,36);T('NETSCAPE',h.x+45,h.y+28,'#3f3',9);},
+ vend:(h,t)=>{R('#2d3a52',h.x,h.y,h.w,h.h);R('#ddd',h.x+8,h.y+10,h.w-30,h.h-45);R('#222',h.x+8,h.y+h.h-28,h.w-16,18);for(let i=0;i<4;i++)for(let j=0;j<3;j++)R(['#e74c3c','#f1c40f','#3498db'][(i+j)%3],h.x+12+j*14,h.y+16+i*22,10,14);R('#6cf',h.x+h.w-18,h.y+14,10,8);},
+ phone:(h,t)=>{R('#444',h.x,h.y,h.w,h.h);R('#bbb',h.x+6,h.y+8,h.w-12,26);T('PHONE',h.x+h.w/2,h.y+60,'#fff',9);},
+ john:(h,t)=>{R('#f4f4f4',h.x+10,h.y+55,40,45);E('#e8e8e8',h.x+30,h.y+105,28,10);R('#ddd',h.x+5,h.y+20,50,38);E(t.acc,h.x+30,h.y+38,12,10);T('⏱',h.x+30,h.y+43,'#fff',14);},
+ gt:(h,t)=>{E('#6b4a8e',h.x+60,h.y+75,60,22);E('#3ccf4e',h.x+60,h.y+45,26,34);E('#fff',h.x+50,h.y+38,7,8);E('#fff',h.x+70,h.y+38,7,8);E('#000',h.x+50,h.y+40,3,3);E('#000',h.x+70,h.y+40,3,3);R('#1a8f2c',h.x+48,h.y+58,24,4);},
+ board:(h,t)=>{R('#8b5a2b',h.x,h.y,h.w,h.h);R('#e8c98e',h.x+5,h.y+5,h.w-10,h.h-10);R('#fff',h.x+12,h.y+12,30,22);R('#c0392b',h.x+48,h.y+16,26,32);T('VOTE',h.x+60,h.y+66,'#222',9);},
+ door:(h,t)=>{R('#4a4f58',h.x,h.y,h.w,h.h);R('#222',h.x+8,h.y+10,h.w-16,h.h-20);R(F.gotKey?'#3f3':'#e33',h.x+h.w-18,h.y+80,8,14);},
+ bin:(h,t)=>{R('#5ee6d6',h.x,h.y,h.w,h.h);R('#16435b',h.x+8,h.y+10,h.w-16,h.h-20);},
+ holo:(h,t)=>{ctx.globalAlpha=.7;R(t.acc,h.x,h.y,h.w,h.h);ctx.globalAlpha=1;T('PURPLE™',h.x+h.w/2,h.y+35,'#1b1033',12);T('OWN YOUR',h.x+h.w/2,h.y+52,'#1b1033',10);T('DEBT',h.x+h.w/2,h.y+66,'#1b1033',10);},
+ barista:(h,t)=>{R('#6b55a8',h.x,h.y+60,h.w,80);R('#bbaaff',h.x+20,h.y,55,60);E('#fff',h.x+37,h.y+25,8,8);E('#fff',h.x+58,h.y+25,8,8);E('#a0f',h.x+37,h.y+25,4,4);E('#a0f',h.x+58,h.y+25,4,4);for(let i=0;i<3;i++){R('#a0f',h.x+2+i*35,h.y+80,8,50);}},
+ puck:(h,t)=>{E(F.puck?'transparent':t.acc,h.x+20,h.y+18,18,8);},
+ pod:(h,t)=>{R('#2f2467',h.x,h.y,h.w,h.h);R('#7de',h.x+6,h.y+10,h.w-12,50);},
+ exit:(h,t)=>{R('#2a2f38',h.x,h.y,h.w,h.h);T('EXIT',h.x+25,h.y+85,'#3f9',11);},
+ main:(h,t)=>{R('#3a3f46',h.x,h.y,h.w,h.h);R('#000',h.x+15,h.y+15,h.w-30,70);T(F.floppy?'OPT-OUT.EXE — 2FA?':'TUITION FOREVER ACT',h.x+h.w/2,h.y+55,'#3f9',13);R(F.floppy?'#111':'#555',h.x+20,h.y+100,60,8);for(let i=0;i<5;i++)R(i%2?'#3f9':'#e33',h.x+110+i*18,h.y+110,8,8);},
+ pt:(h,t)=>{R('#111',h.x,h.y,h.w,h.h);E('#8b2fd1',h.x+50,h.y+40,22,28);E('#fff',h.x+42,h.y+35,5,6);E('#fff',h.x+58,h.y+35,5,6);R('#c0f',h.x+38,h.y+52,24,4);}
+};
+function draw(){
+ const sc=SC[C[cur].scene],t=sc.theme;
+ R(t.wall,0,0,640,210);R(t.floor,0,210,640,110);R('rgba(0,0,0,.25)'.replace('rgba(0,0,0,.25)','#00000044'),0,210,640,4);
+ for(let i=0;i<8;i++)R(t.acc,i*80+10,215+(i%2)*30,60,3);
+ const cs=C[cur].scene;
+ if(cs!=='server'){R('#8fc4ff',560,5,70,50);R('#fff',563,8,64,44);T({past:'1996',now:'2026',future:'2056'}[cs],595,40,'#d33',14);}
+ sc.hs.forEach(h=>{if(D[h.id])D[h.id](h,t);});
+ if(hover&&sc.hs.includes(hover)){ctx.strokeStyle='#ffd23f';ctx.lineWidth=2;ctx.strokeRect(hover.x,hover.y,hover.w,hover.h);}
+ const chars=Object.values(C).filter(c=>c===C[cur]);
+ chars.forEach(drawChar);
+ T({past:'1996 — Dorm Lobby',now:'Present — Dorm Lobby',future:'2056 — Dorm Lobby',server:'Present — Server Room'}[cs],110,16,'#000',12);
+}
+function drawChar(c){
+ const b=Math.sin((c.walk||0)/3)*(c.walk?2:0);const x=c.x,y=c.y+b;
+ E('#0004',x,c.y+2,14,4);
+ R(c.shirt,x-9,y-34,18,22);R('#335',x-8,y-12,7,12);R('#335',x+1,y-12,7,12);
+ E('#f1c8a0',x,y-42,9,9);
+ R(c.hair,x-9,y-52,18,7);if(c.long)R(c.hair,x-10,y-48,4,16);
+ if(c.glasses){ctx.strokeStyle='#000';ctx.lineWidth=1;ctx.strokeRect(x-7,y-45,6,5);ctx.strokeRect(x+1,y-45,6,5);}
+}
+
+/* ---------- UI ---------- */
+function renderInv(){
+ const box=$('inv');box.innerHTML='';
+ C[cur].inv.forEach(n=>{const b=document.createElement('button');b.textContent=n;if(sel===n)b.className='on';
+  b.onclick=()=>{ if(verb==='Use'){ if(sel&&sel!==n){return combine(sel,n);} sel=sel===n?null:n;renderInv();$('status').textContent=sel?`Use ${sel} with…`:'';}
+   else say(itemDesc(n)); };box.appendChild(b);});
+}
+function combine(a,b){
+ const pair=[a,b].sort().join('+');
+ if(pair==='Charging Puck+Phone'){take('bernard','Charging Puck');F.charged=true;sel=null;renderInv();return say(['Bernard sets the phone on the 2056 Charging Puck.','BZZT! Battery: 100%. It also now has 4,812 notifications.']);}
+ sel=null;renderInv();say("Those don't go together.");
+}
+function renderVerbs(){const v=$('verbs');v.innerHTML='';['Look at','Pick up','Use','Talk to'].forEach(n=>{const b=document.createElement('button');b.textContent=n;b.className=n===verb?'on':'';b.onclick=()=>{verb=n;if(n!=='Use')sel=null;renderVerbs();renderInv();};v.appendChild(b);});}
+function renderChars(){const v=$('chars');v.innerHTML='';Object.keys(C).forEach(k=>{const b=document.createElement('button');b.textContent=`${C[k].name} (${{past:'1996',now:'Now',future:'2056',server:'Now'}[C[k].scene]})`;b.className=k===cur?'on':'';b.style.borderColor=C[k].col;b.onclick=()=>{cur=k;sel=null;pending=null;hover=null;queue=[];next();renderChars();renderInv();};v.appendChild(b);});}
+function win(){over=true;$('ov').classList.remove('hide');$('ovt').textContent='TUITION: CANCELLED';$('ovp').innerHTML='Bernard taps APPROVE on his 100% phone. The floppy disk grinds out one final screech. <br><br>"TUITION FOREVER ACT — VOTE CANCELLED. ALL STUDENT LOANS: LOL, JUST KIDDING, FORGIVEN."<br><br>On the monitor, Purple Tentacle screams: <i>"CURSES! FOILED BY A FLOPPY DISK AND TWO-FACTOR AUTHENTICATION!"</i><br><br>Green Tentacle wakes up. He has an A.<br><br><b>THE END</b>';$('go').textContent='PLAY AGAIN';$('go').onclick=()=>location.reload();}
+$('go').onclick=()=>{$('ov').classList.add('hide');say(['Bernard: "Hello, future. My phone is dead and I\'m in debt."','(Look around. Talk to Green Tentacle. Use the Chron-o-John to send items forward in time. Switch heroes below.)'],C.bernard.col);};
+renderVerbs();renderChars();renderInv();requestAnimationFrame(step);
+</script>
+</body>
+</html>
